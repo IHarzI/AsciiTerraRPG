@@ -1,5 +1,6 @@
 # Mutliplayer console RPG
 Insipred by javidx9 networking videos.
+Have fun in the world of unfinished lettery RPG, which, unsurprisingly, has plenty of paradises.
 ## Build
 On windows - launch generateproject bat file and build CLient/Server
 Launch server and then launch clients.
