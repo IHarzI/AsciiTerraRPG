@@ -5,4 +5,4 @@ Have fun in the world of unfinished lettery RPG, which, unsurprisingly, has plen
 On windows - launch generateproject bat file and build CLient/Server
 Launch server and then launch clients.
 ## Gameplay
-![ConsoleRPGGamePlay](https://github.com/user-attachments/assets/12dbb9b5-04af-40c1-beea-120941168366)
+![RPGAsciiTerraGameplayCapture](https://github.com/user-attachments/assets/f08265b6-a990-42db-aeaf-4ba2720e793f)
