@@ -124,7 +124,7 @@ const char* TilesNames[] =
 	"Grass",
 	"Forest",
 	"Water",
-	"Stone"
+	"Stone",
 	"Hill",
 };
 
