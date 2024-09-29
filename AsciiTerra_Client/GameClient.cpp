@@ -212,7 +212,8 @@ public:
 			for (uint32 i = 0; i < ETileType::MAXCount; i++)
 			{
 				char GuideCharsBuff[200];
-				sprintf(GuideCharsBuff, "Tile type: %s Tyle appereance: [%c]\n", TilesNames[i], TilesTable[i].Appereance);
+				const uint32 spaceForTyleType = 15;
+				sprintf(GuideCharsBuff, "Tile type: %s %s| Tyle appereance: [%c]\n", TilesNames[i], repeat(spaceForTyleType - strlen(TilesNames[i]), ' ').c_str(), TilesTable[i].Appereance);
 				GuideMapStr.append(GuideCharsBuff);
 			}
 			PrintString.append(GuideMapStr);
