@@ -542,7 +542,54 @@ public:
 				ReconstructAIPath(AIPath, Enemy.Coords, currentNode, ClosedList);
 				break;
 			};
-			currentNode = OpenList.Pop();
+			const bool UseSearchLowestFCost = true;
+
+			if (!UseSearchLowestFCost)
+			{
+				currentNode = OpenList.Pop();
+			}
+			else
+			{
+				uint16 BestNodeIndex = InvalidMapIndex;
+				// find node with lowest F
+				for (uint16 SearchIndex = 0; SearchIndex < OpenList.size(); SearchIndex++)
+				{
+					if (BestNodeIndex == InvalidMapIndex)
+					{
+						BestNodeIndex = SearchIndex;
+						continue;
+					}
+
+					if (OpenList[SearchIndex].F < OpenList[BestNodeIndex].F)
+					{
+						BestNodeIndex = SearchIndex;
+					}
+				}
+
+				// If invalid, something veery wrong here
+				if (BestNodeIndex == InvalidMapIndex)
+				{
+					break;
+				}
+				
+				if (OpenList.size() > 1)
+				{
+					//if head
+					if (BestNodeIndex == (OpenList.size() - 1))
+					{
+						currentNode = OpenList.Pop();
+					}
+					else
+					{
+						currentNode = OpenList[BestNodeIndex];
+						OpenList[BestNodeIndex] = OpenList.Pop();
+					}
+				}
+				else
+				{
+					currentNode = OpenList.Pop();
+				}
+			}
 			const uint32 PushedNodeID = ClosedList.Push(currentNode);
 			const uint16 CurrentNodeIdInClosedList = PushedNodeID == InvalidID ? InvalidMapIndex : PushedNodeID;
 			for (unsigned int NeighborIndex = 0; NeighborIndex < 8; NeighborIndex++)
@@ -612,8 +659,12 @@ neighbor.parent = current
 	{
 		const uint32 RandIDEnemy = rand() % gameWorld.EnemyList.size();
 		Enemy EnemyStart = gameWorld.EnemyList[RandIDEnemy];
-		const CoordVec DestinationTest{ 5,19,0 };
-		FixedStack<SearchPathNode, MapSizeMax> TestWay = std::move(AISearchPath(RandIDEnemy, {5,19,0}));
+		const CoordVec DestinationTest{ 
+			(int16)(rand() % gameWorld.GameWorldMap.Width + 1),
+			(int16)(rand() % gameWorld.GameWorldMap.Height + 1),
+			0};
+		FixedStack<SearchPathNode, MapSizeMax> TestWay = std::move(AISearchPath(RandIDEnemy, 
+			DestinationTest));
 		char Map[MapSizeMax];
 		std::memset(Map, '-', MapSizeMax);
 		while (!TestWay.empty())

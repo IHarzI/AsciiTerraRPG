@@ -133,8 +133,8 @@ const char* TilesNames[] =
 
 struct Map
 {
-	static constexpr uint32 Width = 40;
-	static constexpr uint32 Height = 40;
+	static constexpr uint32 Width = 50;
+	static constexpr uint32 Height = 50;
 	StaticArray<uint8, Width*Height> MapTiles;
 };
 

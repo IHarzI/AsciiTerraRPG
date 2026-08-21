@@ -8,6 +8,7 @@ class CustomServer : public spnet::server_interface<ECustomMetaMSG>
 public:
 	CustomServer(uint16_t nPort) : spnet::server_interface<ECustomMetaMSG>(nPort)
 	{
+		srand(std::chrono::system_clock::now().time_since_epoch().count());
 		GenerateMap();
 		GenerateEnemies();
 	}
@@ -368,11 +369,12 @@ protected:
 
 	void GenerateEnemies()
 	{
-		const uint32 EnemiesCount = rand() % 25;
+		const uint32 EnemiesCount = rand() % 30;
 		for (uint32 i = 0; i < EnemiesCount; i++)
 		{
 			gameWorld.EnemyList.push_back(EnemiesTable[rand() % EnemyTypeMaxCount]);
-			gameWorld.EnemyList.back().Coords = CoordVec{ (int16)(rand() % 25 + 1), (int16)(rand() % 25 + 1), 0 };
+			gameWorld.EnemyList.back().Coords = CoordVec{ (int16)(rand() % gameWorld.GameWorldMap.Width + 1), 
+				(int16)(rand() % gameWorld.GameWorldMap.Height+ 1), 0 };
 		}
 	}
 
