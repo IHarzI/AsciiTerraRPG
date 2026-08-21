@@ -2,8 +2,118 @@
 #include <spiderNet.h>
 #include "spNetMETA.h"
 #include "Timer.h"
+#include "Containers/DynamirArray.h"
 
 using namespace spnet::Containers;
+
+template <typename ValueT, size_t ArraySize>
+struct FixedStack
+{
+	FixedStack() : InternalStorage(ArraySize)
+	{};
+
+	FixedStack(FixedStack& OtherStack) : InternalStorage(std::move(OtherStack.InternalStorage)), ElementsInside(OtherStack.ElementsInside)
+	{};
+
+	FixedStack(FixedStack&& OtherStack) : InternalStorage(std::move(OtherStack.InternalStorage)), ElementsInside(OtherStack.ElementsInside)
+	{};
+
+	FixedStack& operator=(FixedStack& OtherStack) { InternalStorage = std::move(OtherStack.InternalStorage); ElementsInside = OtherStack.ElementsInside; return *this; };
+	FixedStack& operator=(FixedStack&& OtherStack) { InternalStorage = std::move(OtherStack.InternalStorage); ElementsInside = OtherStack.ElementsInside;  return *this;};
+
+	RingBufferImplementation::RingBuffer<ValueT> InternalStorage;
+	size_t ElementsInside = 0;
+
+	inline ValueT& operator[](size_t index) { assert(index < ArraySize); return InternalStorage[index]; }
+	inline const ValueT& operator[](size_t index) const { assert(index < ArraySize); return InternalStorage[index]; }
+
+	bool Contains(const ValueT& Value) const
+	{
+		return InternalStorage.Contains(Value);
+	}
+
+	// Comparator should take (ValueT lhs, ValueT rhs) and return true, if it's equal
+	template <typename Comparator>
+	bool Contains(const ValueT& Value) const
+	{
+		return InternalStorage.Contains<Comparator>(Value);
+	}
+
+	// Comparator should take (ValueT lhs, ValueT rhs) and return true, if it's equal
+	template <typename Comparator>
+	ValueT& Find(const ValueT& Value)
+	{
+		return InternalStorage.Find<Comparator>(Value);
+	}
+
+	// Comparator should take (ValueT lhs, ValueT rhs) and return index, if found this valud, or InvalidID(max uint32) if not
+	template<typename Comparator>
+	unsigned int FindIndex(const ValueT& Value)
+	{
+		return InternalStorage.FindIndex<Comparator>(Value);
+	}
+
+	ValueT& GetHead()
+	{
+		return *InternalStorage.PeekFront();
+	}
+
+	const ValueT& GetHead() const
+	{
+		return *InternalStorage.PeekFront();
+	}
+
+	ValueT& GetBack()
+	{
+		return *InternalStorage.PeekBack();
+	}
+
+	const ValueT& GetBack() const
+	{
+		return *InternalStorage.PeekBack();
+	}
+
+	size_t Push(ValueT Value)
+	{
+		assert(ElementsInside < ArraySize);
+		ElementsInside++;
+		return InternalStorage.PushBack(Value);
+	}
+
+	ValueT& LookAtRawIndex(size_t index) 
+	{
+		return *(InternalStorage.data() + index);
+	}
+
+	const ValueT& LookAtRawIndex(size_t index) const
+	{
+		return *InternalStorage.LookAtIndex(index);
+	}
+
+	ValueT Pop()
+	{
+		if (empty())
+			return {};
+		ElementsInside--;
+		return InternalStorage.PopFront();
+	}
+
+	bool empty() const
+	{
+		return ElementsInside < 1;
+	}
+
+	inline constexpr ValueT* data() noexcept { return InternalStorage.data(); };
+	inline constexpr const ValueT* data() const noexcept { return InternalStorage.data(); };
+
+	inline constexpr ValueT* begin()	const { return InternalStorage.begin(); };
+	inline constexpr ValueT* end()	const { return InternalStorage.end(); };
+
+	inline constexpr ValueT* begin() { return InternalStorage.begin(); };
+	inline constexpr ValueT* end() { return InternalStorage.end(); };
+
+	inline constexpr size_t size() const { return ElementsInside; };
+};
 
 static std::string repeat(unsigned times, char c) {
 	std::string result;
@@ -55,8 +165,8 @@ private:
 
 	bool IsEnemyListDirt = false;
 	bool IsPlayerDead = false;
-	bool key[11] = {false};
-	bool old_key[11] = {false};
+	bool key[12] = {false};
+	bool old_key[12] = {false};
 public:
 	// META Server
 	void PingServer()
@@ -312,12 +422,216 @@ public:
 	{
 		if (Command == "ShowInventory")
 		{
-			CLIENT_MESSAGE("Your inventory: "); ShowPlayers();
+			CLIENT_MESSAGE("Your inventory: "); ShowInventory();
 		}
 		else if(Command == "ShowPlayer")
 		{
-			CLIENT_MESSAGE("Current players:"); ShowInventory();
+			CLIENT_MESSAGE("Current players:"); ShowPlayers();
 		};
+	}
+
+	// ----- AI PATH TEST
+
+
+	float AIPathCalculcateHeuristics(const SearchPathNode& A, const SearchPathNode& B)
+	{
+		// sqrt((x2-x1)^2+(y2-y1)^2)
+		return matharz::sqrt((B.coords.x - A.coords.x) * (B.coords.x - A.coords.x) + (B.coords.y - A.coords.y) * (B.coords.y - A.coords.y));
+	}
+
+	//return full way path from start point to destination
+	void ReconstructAIPath(FixedStack<SearchPathNode, MapSizeMax>& WayToDestination, CoordVec StartPoint, SearchPathNode DestinationNode, const FixedStack<SearchPathNode, MapSizeMax>& ClosedListFromPathSearch)
+	{
+		if (DestinationNode.coords == StartPoint)
+		{
+			WayToDestination.Push(DestinationNode);
+			return;
+		}
+
+		if (ClosedListFromPathSearch.empty())
+		{
+			return;
+		}
+
+		WayToDestination.Push(DestinationNode);
+		uint16 NextNodeIndexOnPath = DestinationNode.ParentNodeIDInClosedList;
+		while (NextNodeIndexOnPath != InvalidMapIndex)
+		{
+			WayToDestination.Push(ClosedListFromPathSearch.LookAtRawIndex(NextNodeIndexOnPath));
+			NextNodeIndexOnPath = WayToDestination.GetBack().ParentNodeIDInClosedList;
+		}
+
+		return;
+	}
+
+	struct SearchPathNodeComparator {
+		bool operator()(const SearchPathNode& a, const SearchPathNode& b) const {
+			// Return true if 'a' should come BEFORE 'b'
+			// Example for descending order:
+			return a.coords == b.coords;
+		}
+	};
+
+	const Tile GetMapTile(const CoordVec TileCoords) const
+	{
+		const uint8 Tile = gameWorld.GameWorldMap.MapTiles[TileCoords.x + TileCoords.y * gameWorld.GameWorldMap.Width];
+		return TilesTable[Tile];
+	}
+
+	bool IsTileBlocked(const uint32 EnemyID, const CoordVec TileCoords) const
+	{
+		const Tile Tile = GetMapTile(TileCoords);
+		if (Tile.Type == ETileType::Water || Tile.Type == ETileType::Hill)
+			return true;
+
+		return false;
+	}
+
+	bool IsCoordsValid(const CoordVec TileCoords) const
+	{
+		const bool XValid = TileCoords.x >= 0 && TileCoords.x <= gameWorld.GameWorldMap.Width;
+		const bool YValid = TileCoords.y >= 0 && TileCoords.y <= gameWorld.GameWorldMap.Height;
+		return XValid && YValid;
+	}
+
+	FixedStack<SearchPathNode, MapSizeMax> AISearchPath(uint32 EnemyID, CoordVec Destination)
+	{
+		FixedStack<SearchPathNode, MapSizeMax> AIPath;
+		Enemy Enemy = gameWorld.EnemyList[EnemyID];
+
+		unsigned char CellList[gameWorld.GameWorldMap.Height][gameWorld.GameWorldMap.Width];
+		//Should not be more than 256
+		FixedStack<SearchPathNode, MapSizeMax> OpenList;
+		FixedStack<SearchPathNode, MapSizeMax> ClosedList;
+
+		OpenList.Push({ Enemy.Coords, InvalidCoord,InvalidMapIndex,0,0,0 });
+		SearchPathNode currentNode = OpenList.GetHead();
+		const bool DebugPrint = true;
+		while (!(OpenList.empty()))
+		{
+			if (DebugPrint)
+			{
+				char Map[MapSizeMax];
+				std::memset(Map, '-', MapSizeMax);
+				for (uint32 ID= 0;ID<OpenList.size();ID++)
+				{
+					SearchPathNode& Node = OpenList[ID];
+					Map[Node.coords.x + Node.coords.y * gameWorld.GameWorldMap.Width] = '^';
+				}
+				for (uint32 ID = 0; ID < ClosedList.size(); ID++)
+				{
+					SearchPathNode& Node = ClosedList[ID];
+					Map[Node.coords.x + Node.coords.y * gameWorld.GameWorldMap.Width] = 'x';
+				}
+				Map[Destination.x + Destination.y * gameWorld.GameWorldMap.Width] = 'F';
+				Map[Enemy.Coords.x + Enemy.Coords.y * gameWorld.GameWorldMap.Width] = 'S';
+				std::string StringToPrint;
+				StringToPrint.append("\n -----ShowProgressAIPathSearch: \n");
+				for (uint16 YLineToPrint = 0; YLineToPrint < gameWorld.GameWorldMap.Height; YLineToPrint++)
+				{
+					StringToPrint.append((const char*)&Map[YLineToPrint* gameWorld.GameWorldMap.Width], gameWorld.GameWorldMap.Width);
+					StringToPrint.append("\n");
+				}
+				StringToPrint.append("------ ShowProgressAIPathSearch\n");
+				std::cout << StringToPrint;
+			}
+
+
+			if (currentNode.coords == Destination)
+			{
+				ReconstructAIPath(AIPath, Enemy.Coords, currentNode, ClosedList);
+				break;
+			};
+			currentNode = OpenList.Pop();
+			const uint32 PushedNodeID = ClosedList.Push(currentNode);
+			const uint16 CurrentNodeIdInClosedList = PushedNodeID == InvalidID ? InvalidMapIndex : PushedNodeID;
+			for (unsigned int NeighborIndex = 0; NeighborIndex < 8; NeighborIndex++)
+			{
+				const CoordVec Directions[8] =
+				{
+					{-1,-1,0}, {0,-1,0}, {1,-1,0},
+					{-1,0,0},			{1,0,0},
+					(-1,1,0),  {0,1,0}, {1,1,0}
+				};
+
+				const CoordVec NeighborTileCoord = currentNode.coords + Directions[NeighborIndex];
+				if (!IsCoordsValid(NeighborTileCoord))
+					continue;
+
+				SearchPathNode NeighborNode = { NeighborTileCoord ,currentNode.coords,CurrentNodeIdInClosedList,InvalidDistance,InvalidDistance,InvalidDistance };
+
+				const bool TileBlocked = IsTileBlocked(EnemyID, NeighborTileCoord);
+				if (TileBlocked || ClosedList.Contains<SearchPathNodeComparator>(NeighborNode))
+					continue;
+
+				const float TentativeG = currentNode.G + NeighborNode.coords.DistanceTo(currentNode.coords);
+				NeighborNode.G = TentativeG;
+				NeighborNode.H = AIPathCalculcateHeuristics(NeighborNode, { Destination,{},0,0,0 });
+				NeighborNode.F = NeighborNode.G + NeighborNode.H;
+
+				if (!OpenList.Contains<SearchPathNodeComparator>(NeighborNode))
+					OpenList.Push(NeighborNode);
+				else
+				{
+					SearchPathNode& OpenListNeigbor = OpenList.Find<SearchPathNodeComparator>(NeighborNode);
+					if (OpenListNeigbor.G > TentativeG)
+					{
+						OpenListNeigbor = NeighborNode;
+					}
+				}
+			}
+		}
+
+		/*
+		while open_list is not empty:
+	current = node in open_list with the lowest f score
+	if current == goal:
+		return reconstruct_path(current)
+open_list.remove(current)
+	closed_list.append(current)
+for each neighbor of current:
+		if neighbor in closed_list or neighbor is blocked:
+			continue
+tentative_g = current.g + distance(current, neighbor)
+		if neighbor not in open_list:
+			open_list.append(neighbor)
+		elif tentative_g >= neighbor.g:
+			continue
+neighbor.parent = current
+		neighbor.g = tentative_g
+		neighbor.h = heuristic(neighbor, goal)
+		neighbor.f = neighbor.g + neighbor.h
+		*/
+
+		return AIPath;
+	}
+
+	// ------- AI PATH TEST END
+
+	void ShowAITestPath()
+	{
+		const uint32 RandIDEnemy = rand() % gameWorld.EnemyList.size();
+		Enemy EnemyStart = gameWorld.EnemyList[RandIDEnemy];
+		const CoordVec DestinationTest{ 5,19,0 };
+		FixedStack<SearchPathNode, MapSizeMax> TestWay = std::move(AISearchPath(RandIDEnemy, {5,19,0}));
+		char Map[MapSizeMax];
+		std::memset(Map, '-', MapSizeMax);
+		while (!TestWay.empty())
+		{
+			SearchPathNode Node = TestWay.Pop();
+			Map[Node.coords.x + gameWorld.GameWorldMap.Width * Node.coords.y] = '^';
+		};
+		Map[DestinationTest.x + DestinationTest.y * gameWorld.GameWorldMap.Width] = 'F';
+		Map[EnemyStart.Coords.x + EnemyStart.Coords.y * gameWorld.GameWorldMap.Width] = 'S';
+		std::string StringToPrint;
+		StringToPrint.append("\n -----TestAIMAP: \n");
+		for (uint16 YLineToPrint = 0; YLineToPrint < gameWorld.GameWorldMap.Height; YLineToPrint++)
+		{
+			StringToPrint.append((const char*)&Map[YLineToPrint* gameWorld.GameWorldMap.Width], gameWorld.GameWorldMap.Width);
+			StringToPrint.append("\n");
+		}
+		StringToPrint.append("------ TESTAIMapEnd\n");
+		std::cout << StringToPrint;
 	}
 
 	void UpdatePlayer()
@@ -340,6 +654,7 @@ public:
 
 				key[9] = GetAsyncKeyState('?') & 0x8000;
 				key[10] = GetAsyncKeyState('M') & 0x8000;
+				key[11] = GetAsyncKeyState('L') & 0x8000;
 			}
 
 			if (key[0] && !old_key[0]) { PingServer(); CLIENT_MESSAGE("PingButton pressed");		};
@@ -350,13 +665,14 @@ public:
 			if (key[10] && !old_key[10]) { CLIENT_MESSAGE("Map: "); ShowMap(); };
 			if (key[9] && !old_key[9]) { std::string Command; std::cin >> Command; ParseCommand(Command);};
 
+			if (key[11] && !old_key[11]) { CLIENT_MESSAGE("Test AI Path:"); ShowAITestPath(); };
 
 			if (key[5] && !old_key[5]) MakeActionApprove({ Move, PlayerID, {0,0,-1,0} });
 			if (key[6] && !old_key[6]) MakeActionApprove({ Move, PlayerID, {0,0,1,0} });
 			if (key[7] && !old_key[7]) MakeActionApprove({ Move, PlayerID, {0,-1,0,0} });
 			if (key[8] && !old_key[8]) MakeActionApprove({ Move, PlayerID, {0,1,0,0} });
 
-			for (int i = 0; i < 10; i++) old_key[i] = key[i];
+			for (int i = 0; i < 12; i++) old_key[i] = key[i];
 
 			if (IsConnected())
 			{
@@ -591,4 +907,4 @@ int main()
 	c.run();
 
 	return 0;
-}
+};

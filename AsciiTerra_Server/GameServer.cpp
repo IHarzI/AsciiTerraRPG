@@ -20,6 +20,14 @@ protected:
 		return true;
 	}
 
+	void GiveRandomItemsOnStart(Player& playerInfo)
+	{
+		for (uint32 i = 0; i < rand() % 5; i++)
+		{
+			playerInfo.Inventory.AddItem(ItemTable[rand() % 5]);
+		};
+	}
+
 	//will modify playerInfo
 	void ClientOnRegister(Player& playerInfo, std::shared_ptr<spnet::connection<ECustomMetaMSG>> client)
 	{
@@ -50,11 +58,8 @@ protected:
 		playerInfo.SetMaxTurnActions(BaseTurnActions);
 		playerInfo.SetCurrentTurnActions(BaseTurnActions);
 
-		playerInfo.HP = 45;
-		for (uint32 i = 0; i < rand() % 5; i++)
-		{
-			playerInfo.Inventory.AddItem(ItemTable[rand() % 5]);
-		};
+		playerInfo.HP = PlayerDefaultMaxHP;
+		GiveRandomItemsOnStart(playerInfo);
 
 	}
 

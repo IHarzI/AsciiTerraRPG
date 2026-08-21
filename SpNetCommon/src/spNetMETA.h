@@ -8,10 +8,13 @@ using namespace spnet::Containers;
 
 const uint32 InvalidID = 0xFFFFFFFF;
 
+const uint32 InvalidMapIndex = 0xFFFF;
+
 struct GameWorld;
 
 const uint32 MaxNameSize = 75;
 const uint32 MaxInventorySize = 20;
+const uint32 PlayerDefaultMaxHP = 45;
 using CoordVec = matharz::template_vec3<int16>;
 
 struct AttackTarget
@@ -278,12 +281,14 @@ const char* EnemiesNames[]
 
 enum EEnemyActionType : uint8
 {
+	Discard, //None
 	EnemyMove,
 	EnemyBaseAttack
 };
 
 const char* EnemiesActionsNames[]
 {
+	"DISCARD",
 	"MOVE",
 	"BASE ATTACK"
 };
@@ -321,6 +326,21 @@ const Enemy EnemiesTable[] =
 {
 	{Zombie,0, 17, 3, 0,{{false, ItemTable[5], 0, 1}}},
 	{Bandit,1, 23, 2, 0,{{false, ItemTable[1], 0, 1}, {false, ItemTable[3], 0, 50}}}
+};
+
+
+const CoordVec InvalidCoord{ -1,-1,-1 };
+const uint16 InvalidDistance = 9999;
+static const inline unsigned MapSizeMax = Map::Height * Map::Width;
+
+struct SearchPathNode
+{
+	CoordVec coords;
+	CoordVec ParentCoords;
+	uint16 ParentNodeIDInClosedList;
+	float G;
+	float H;
+	float F;
 };
 
 struct GameWorld

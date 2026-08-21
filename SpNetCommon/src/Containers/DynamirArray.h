@@ -1,14 +1,4 @@
 #pragma once
-// SpNet
-// Networking experiment project
-// IHarzI Zakhar Maslianka
-// Inspired by javidx9 networking in c++ videos
-// 
-
-#define RING_BUFFER_USE_SIMPLE_ALLOCATOR
-
-// ---
-
 /// -----------------------------------------------------------------------------
 /// 
 /// BSD 3-Clause License
@@ -16,18 +6,353 @@
 /// 
 /// -----------------------------------------------------------------------------
 
-
 #include <vector>
 #include <memory.h>
+#include <intrin.h>
 
 #ifdef RING_BUFFER_DEBUG
 #include <cassert>
-#define RING_BUFFER_ASSERT(cond) assert(cond)
+#define RING_BUFFER_ASSERT(cond) if(!(cond)) __debugbreak();
 #define RING_BUFFER_REPORT(msg) std::cout << msg << '\n';
 #else
 #define RING_BUFFER_ASSERT(cond)
 #define RING_BUFFER_REPORT(msg)
 #endif
+
+
+#pragma once
+#define RING_BUFFER_USE_SIMPLE_ALLOCATOR
+
+namespace spnet {
+	namespace Containers {
+		namespace Iterators
+		{
+			enum class EIndexedAccessIteratorPosition
+			{
+				Begin,
+				End,
+				InRange,
+				Invalid
+			};
+
+			template<typename ContainerT, typename ValueT, typename SizeType, bool IsConstAccessOnly>
+			class TIndexedIteratorBase
+			{
+			protected:
+				SizeType Index;
+				EIndexedAccessIteratorPosition Position;
+				ContainerT* Container;
+			public:
+
+				TIndexedIteratorBase(const ContainerT& InContainer, SizeType StartIndex = InContainer.GetBeginIndex(),
+					EIndexedAccessIteratorPosition Pos = EIndexedAccessIteratorPosition::Begin);
+
+				TIndexedIteratorBase& operator=(const TIndexedIteratorBase& Other)
+				{
+					Index = Other.Index;
+					Container = Other.Container;
+					Position = Other.Position;
+					return *this;
+				};
+
+				TIndexedIteratorBase(const TIndexedIteratorBase&) = default;
+
+				TIndexedIteratorBase(TIndexedIteratorBase&&) = default;
+
+				~TIndexedIteratorBase()
+				{
+				};
+
+				inline const ValueT& operator* () const
+				{
+					RING_BUFFER_ASSERT(GetContainerRef().IsIndexValid(Index));
+					return *(GetContainerRef().PointToValueAtIndex(Index));
+				}
+
+				inline const ValueT* operator->() const
+				{
+					RING_BUFFER_ASSERT(GetContainerRef().IsIndexValid(Index));
+					return &GetContainerRef().PointToValueAtIndex(Index);
+				}
+
+				template <typename = std::enable_if<!IsConstAccessOnly>::type> ValueT& operator* ()
+					//inline ValueT& operator* ()
+				{
+					RING_BUFFER_ASSERT(GetContainerRef().IsIndexValid(Index));
+					return *(GetContainerRef().PointToValueAtIndex(Index));
+				}
+
+				template <typename = std::enable_if<!IsConstAccessOnly>::type> ValueT* operator->()
+					//inline ValueT* operator->()
+				{
+					RING_BUFFER_ASSERT(GetContainerRef().IsIndexValid(Index));
+					return &GetContainerRef().PointToValueAtIndex(Index);
+				}
+
+				void Increment()
+				{
+					switch (Position)
+					{
+					case EIndexedAccessIteratorPosition::Begin:
+					{
+						Position = EIndexedAccessIteratorPosition::InRange;
+						Index = GetContainerRef().GetBeginIndex();
+						//break;
+					}
+					case EIndexedAccessIteratorPosition::InRange:
+					{
+						Index = GetContainerRef().GetNextIndexIter(Index);
+						if (Index == GetContainerRef().InvalidIndex())
+							SetToEnd();
+						break;
+					}
+					case EIndexedAccessIteratorPosition::End:
+					{
+						//Index = GetContainerRef().InvalidIndex();
+						//Position = EIndexedAccessIteratorPosition::Invalid;
+						SetToEnd();
+						break;
+					}
+					};
+				}
+
+				void Increment(SizeType Offset)
+				{
+					if (!Offset)
+						return;
+					switch (Position)
+					{
+					case EIndexedAccessIteratorPosition::Begin:
+					{
+						Position = EIndexedAccessIteratorPosition::InRange;
+						Index = GetContainerRef().GetBeginIndex();
+						// continue in range scope
+					}
+					case EIndexedAccessIteratorPosition::InRange:
+					{
+						Index = GetContainerRef().GetNextIndexIter(Index, Offset);
+
+						if (Index == GetContainerRef().InvalidIndex())
+							SetToEnd();
+
+						break;
+					}
+					case EIndexedAccessIteratorPosition::End:
+					{
+						//Index = GetContainerRef().InvalidIndex();
+						//Position = EIndexedAccessIteratorPosition::Invalid;
+						SetToEnd();
+						break;
+					}
+					};
+				}
+
+				void Decrement()
+				{
+					switch (Position)
+					{
+					case EIndexedAccessIteratorPosition::Begin:
+					{
+						//Position = EIndexedAccessIteratorPosition::Invalid;
+						//Index = GetContainerRef().InvalidIndex();
+						SetToEnd(); // make iterator invalid by setting to end, as ranges use "end" for validity
+						break;
+					}
+					case EIndexedAccessIteratorPosition::End:
+					{
+						Position = EIndexedAccessIteratorPosition::InRange;
+						Index = GetContainerRef().GetEndIndex();
+						break;
+					}
+					case EIndexedAccessIteratorPosition::InRange:
+					{
+						Index = GetContainerRef().GetPreviousIndexIter(Index);
+						break;
+					}
+					};
+				}
+
+				void Decrement(SizeType Offset)
+				{
+					if (!Offset)
+						return;
+
+					switch (Position)
+					{
+					case EIndexedAccessIteratorPosition::Begin:
+					{
+						//Position = EIndexedAccessIteratorPosition::Invalid;
+						//Index = GetContainerRef().InvalidIndex();
+						SetToEnd();
+						break;
+					}
+					case EIndexedAccessIteratorPosition::End:
+					{
+						Position = EIndexedAccessIteratorPosition::InRange;
+						Index = GetContainerRef().GetEndIndex();
+						// continue in range index
+						Offset -= 1;
+
+						if (!Offset)
+							break;
+					}
+					case EIndexedAccessIteratorPosition::InRange:
+					{
+						Index = GetContainerRef().GetPreviousIndexIter(Index, Offset);
+						if (Index == GetContainerRef().InvalidIndex())
+							SetToEnd();
+						break;
+					}
+					};
+				}
+
+				TIndexedIteratorBase& operator++()
+				{
+					Increment();
+
+					//if (Index == GetContainerRef().InvalidIndex())
+					//	Position = EIndexedAccessIteratorPosition::End;
+					RING_BUFFER_ASSERT(*this == GetContainerRef().end() || Index != GetContainerRef().InvalidIndex());
+
+					return *this;
+				}
+
+				TIndexedIteratorBase& operator--()
+				{
+					Decrement();
+
+					//if (Index == GetContainerRef().InvalidIndex())
+					//	SetToEnd();
+					RING_BUFFER_ASSERT(*this == GetContainerRef().end() || Index != GetContainerRef().InvalidIndex());
+
+					return *this;
+				}
+
+				TIndexedIteratorBase& operator--(int)
+				{
+					Decrement();
+
+					//if (Index == GetContainerRef().InvalidIndex())
+					//	SetToEnd();
+					RING_BUFFER_ASSERT(*this == GetContainerRef().end() || Index != GetContainerRef().InvalidIndex());
+
+					return *this;
+				}
+
+				TIndexedIteratorBase& operator++(int)
+				{
+					Increment();
+
+					//if (Index == GetContainerRef().InvalidIndex())
+					//	Position = EIndexedAccessIteratorPosition::End;
+					RING_BUFFER_ASSERT(*this == GetContainerRef().end() || Index != GetContainerRef().InvalidIndex());
+
+					return *this;
+				}
+
+				/** iterator arithmetic support */
+				TIndexedIteratorBase& operator+=(SizeType Offset)
+				{
+					Increment(Offset);
+
+					RING_BUFFER_ASSERT(*this == GetContainerRef().end() || Index != GetContainerRef().InvalidIndex());
+
+					return *this;
+				}
+
+				TIndexedIteratorBase operator+(SizeType Offset) const
+				{
+					TIndexedIteratorBase Tmp(*this);
+					Tmp += Offset;
+					return Tmp;
+				}
+
+				TIndexedIteratorBase& operator-=(SizeType Offset)
+				{
+					Decrement(Offset);
+
+					//if (Index == GetContainerRef().InvalidIndex())
+					//	Position = EIndexedAccessIteratorPosition::Begin;
+					RING_BUFFER_ASSERT(*this == GetContainerRef().end() || Index != GetContainerRef().InvalidIndex());
+
+					return *this;
+				}
+
+				TIndexedIteratorBase operator-(SizeType Offset) const
+				{
+					TIndexedIteratorBase Tmp(*this);
+					Tmp -= Offset;
+					return Tmp;
+				}
+
+				/** conversion to "bool" returning true if the iterator has not reached the last element. */
+				inline explicit operator bool() const
+				{
+					return Position == EIndexedAccessIteratorPosition::InRange && GetContainerRef().IsIndexValid(Index);
+				}
+
+				inline bool IsValidIter() const
+				{
+					return Position == EIndexedAccessIteratorPosition::InRange && GetContainerRef().IsIndexValid(Index) ||
+						Position == EIndexedAccessIteratorPosition::Begin;
+				}
+
+				/** Returns an index to the current element. */
+				SizeType GetIndex() const
+				{
+					return Position = EIndexedAccessIteratorPosition::InRange ? Index : GetContainerRef().InvalidIndex();
+				}
+
+				/** Resets the iterator to the first element. */
+				void Reset()
+				{
+					auto BeginIter = GetContainerRef().begin();
+					Index = BeginIter.Index;
+					Position = BeginIter.Position;
+				}
+
+				/** Sets the iterator to one past the last element. */
+				void SetToEnd()
+				{
+					auto EndIter = GetContainerRef().end();
+					Index = EndIter.Index;
+					Position = EndIter.Position;
+				}
+
+				inline bool operator==(const TIndexedIteratorBase& Rhs) const {
+					return Container == Rhs.Container && Index == Rhs.Index && Position == Rhs.Position;
+				};
+
+				inline bool operator!=(const TIndexedIteratorBase& Rhs) const {
+					return Container != Rhs.Container || Index != Rhs.Index || Position != Rhs.Position;
+				};
+			protected:
+
+				template <typename = std::enable_if<!IsConstAccessOnly>::type> ContainerT& GetContainerRef()
+				{
+					RING_BUFFER_ASSERT(Container);
+					return *Container;
+				};
+
+				const ContainerT& GetContainerRef() const
+				{
+					RING_BUFFER_ASSERT(Container);
+					return *Container;
+				};
+
+			};
+
+			template<typename ContainerT, typename ValueT, typename SizeType, bool IsConstAccessOnly>
+			inline TIndexedIteratorBase<ContainerT, ValueT, SizeType, IsConstAccessOnly>::TIndexedIteratorBase(const ContainerT& InContainer, SizeType StartIndex, EIndexedAccessIteratorPosition Pos)
+				: Container((const_cast<ContainerT*>(&InContainer)))
+				, Index(StartIndex)
+				, Position(Pos)
+			{
+			}
+
+		};
+	};
+};
 
 #ifdef RING_BUFFER_USE_SIMPLE_ALLOCATOR
 namespace spnet {
@@ -77,11 +402,14 @@ namespace spnet {
 			class RingBuffer
 			{
 			public:
+
+				using IndexedIterator = Iterators::TIndexedIteratorBase<RingBuffer, ValueT, size_t, false>;
+				using ConstIndexedIterator = Iterators::TIndexedIteratorBase<RingBuffer, ValueT, size_t, true>;
+
 				RingBuffer();
 				RingBuffer(RingBuffer& Other);
 				RingBuffer(RingBuffer&& Other);
 				RingBuffer& operator=(RingBuffer& Other);
-				RingBuffer& operator=(RingBuffer&& Other);
 				RingBuffer(size_t capacity);
 				~RingBuffer();
 
@@ -97,24 +425,22 @@ namespace spnet {
 				}
 
 				// Look at the first front element, don't use a pointer after pushes/emplacements elements inside the ring
-				ValueT* PeekFront();
+				IndexedIterator PeekFront();
 
 				// Look at the first back element, don't use a pointer after pushes/emplacements elements inside the ring
-				ValueT* PeekBack();
+				IndexedIterator PeekBack();
 
 				// Look at the first front element, don't use a pointer after pushes/emplacements elements inside the ring
-				const	ValueT* PeekFront()	const;
+				ConstIndexedIterator PeekFront()	const;
 
 				// Look at the first back element, don't use a pointer after pushes/emplacements elements inside the ring
-				const	ValueT* PeekBack()	const;
+				ConstIndexedIterator PeekBack()	const;
 
-				ValueT& Front();
+				const ValueT& Front() const { return *PeekFront(); };
+				const ValueT& Back() const { return *PeekBack(); };
 
-				ValueT& Back();
-
-				const ValueT& Front() const;
-
-				const ValueT& Back() const;
+				ValueT& Front() { return *PeekFront(); };
+				ValueT& Back() { return *PeekBack(); };
 
 				// Pop element from front
 				ValueT&& PopFront();
@@ -145,14 +471,66 @@ namespace spnet {
 				// Get tail index, in case of 0 elements, result will be InvalidIndex 
 				size_t GetTailIndex() const;
 
-				inline void EraseAllIfEqual(ValueT value);
+				bool Contains(const ValueT& Value) const
+				{
+					for (unsigned int Index = 0; Index < size(); Index++)
+					{
+						if (*PointToValueAtRingIndex(Index) == Value)
+						{
+							return true;
+						}
+					}
+					return false;
+				}
 
-				// Stuff for convenient loop and useful operators
-				inline ValueT& operator[](size_t index) { RING_BUFFER_ASSERT(index < capacity); return PointToValueAtIndex(index); }
-				inline const ValueT& operator[](size_t index) const { RING_BUFFER_ASSERT(index < capacity); return PointToValueAtIndex(index); }
+				// Comparator should take (ValueT lhs, ValueT rhs) and return true, if it's equal
+				template<typename Comparator>
+				bool Contains(const ValueT& Value) const
+				{
+					for (unsigned int Index = 0; Index < size(); Index++)
+					{
+						if (Comparator()(*PointToValueAtRingIndex(Index), Value))
+						{
+							return true;
+						}
+					}
+					return false;
+				}
 
-				inline ValueT& at(size_t index) { RING_BUFFER_ASSERT(index < capacity); return PointToValueAtIndex(index); }
-				inline const ValueT& at(size_t index) const { RING_BUFFER_ASSERT(index < capacity); return PointToValueAtIndex(index); }
+				// Comparator should take (ValueT lhs, ValueT rhs) and return true, if it's equal
+				template<typename Comparator>
+				ValueT& Find(const ValueT& Value)
+				{
+					for (unsigned int Index = 0; Index < size(); Index++)
+					{
+						if (Comparator()(*PointToValueAtRingIndex(Index), Value))
+						{
+							return *PointToValueAtRingIndex(Index);
+						}
+					}
+					return *MemoryBlock[0];
+				}
+
+				// Comparator should take (ValueT lhs, ValueT rhs) and return index, if found this valud, or InvalidID(max uint32) if not
+				template<typename Comparator>
+				unsigned int FindIndex(const ValueT& Value)
+				{
+					for (unsigned int Index = 0; Index < size(); Index++)
+					{
+						if (Comparator()(*PointToValueAtRingIndex(Index), Value))
+						{
+							return Index;
+						}
+					}
+					return InvalidID;
+				}
+
+						// Stuff for convenient loop and useful operators
+				inline ValueT& operator[](size_t index) { RING_BUFFER_ASSERT(index < capacity); return *PointToValueAtRingIndex(index); }
+				inline const ValueT& operator[](size_t index) const { RING_BUFFER_ASSERT(index < capacity); return *PointToValueAtRingIndex(index); }
+
+				inline ValueT& at(size_t index) { RING_BUFFER_ASSERT(index < capacity); return *PointToValueAtRingIndex(index); }
+				inline const ValueT& at(size_t index) const { RING_BUFFER_ASSERT(index < capacity); return *PointToValueAtRingIndex(index); }
 
 				// Same as GetSize, for ranges
 				inline constexpr size_t size() const { return elementsInside; };
@@ -160,16 +538,221 @@ namespace spnet {
 				inline constexpr ValueT* data() noexcept {
 					return (ValueT*)MemoryBlock;
 				};
-				inline constexpr const ValueT* data() const noexcept { return (ValueT*)MemoryBlock; };
 
-				inline constexpr ValueT* begin()	const { return (ValueT*)MemoryBlock; };
-				inline constexpr ValueT* end()	const { return (ValueT*)(MemoryBlock)+size(); };
+				inline constexpr const ValueT* data() const noexcept { return (ValueT*)MemoryBlock; };
 
 				inline const size_t InvalidIndex() const { return size_t(-1); };
 
+				inline IndexedIterator begin()
+				{
+					if (elementsInside)
+						return IndexedIterator{ *this, GetBeginIndex(), Iterators::EIndexedAccessIteratorPosition::Begin };
+
+					return end();
+				};
+
+				inline IndexedIterator end()
+				{
+					return IndexedIterator{ *this, InvalidIndex(),Iterators::EIndexedAccessIteratorPosition::End };
+				};
+
+				inline ConstIndexedIterator begin() const {
+					if (elementsInside)
+						return ConstIndexedIterator{ *this, GetBeginIndex(),Iterators::EIndexedAccessIteratorPosition::Begin };
+
+					return end();
+				};
+
+				inline ConstIndexedIterator end() const
+				{
+					return ConstIndexedIterator{ *this, InvalidIndex(),Iterators::EIndexedAccessIteratorPosition::End };
+				};
+
+				inline bool IsIndexValid(size_t Index) const
+				{
+					if (Index >= capacity ||
+						elementsInside == 0 ||
+						Index == InvalidIndex() ||
+						Index < GetTailIndex() && Index > GetHeadIndex() ||
+						Index > GetTailIndex() && Index > GetHeadIndex() && GetTailIndex() <= GetHeadIndex())
+						return false;
+					return true;
+				};
+
 			private:
+				friend IndexedIterator;
+				friend ConstIndexedIterator;
+
+				inline size_t GetBeginIndex() const { return GetTailIndex(); };
+				inline size_t GetEndIndex() const { return GetHeadIndex(); };
+				inline size_t GetNextIndexIter(size_t index) const
+				{
+					if (index == InvalidIndex())
+					{
+						return InvalidIndex();
+					}
+
+					if (GetTailIndex() > GetHeadIndex())
+					{
+						if (index == GetCapacity() - 1)
+							index = 0;
+						else
+							index++;
+					}
+					else
+						index++;
+
+					if (!IsIndexValid(index))
+						return InvalidIndex();
+
+					return index;
+				};
+
+				inline size_t GetNextIndexIter(size_t index, size_t offset) const
+				{
+					if (!offset)
+						return index;
+
+					if (index == InvalidIndex())
+					{
+						return InvalidIndex();
+					}
+
+					if (GetTailIndex() > GetHeadIndex())
+					{
+						if (index == GetCapacity() - 1)
+						{
+							if (offset - 1 > GetHeadIndex())
+								return InvalidIndex();
+
+							index = offset - 1; // 0 or 0+offset-1 items, as 0 is first item
+						}
+						else
+						{
+							if (index < GetCapacity() - 1)
+							{
+								size_t TailBackOffset = GetCapacity() - 1 - index;
+								if (offset > TailBackOffset)
+								{
+									size_t BackOffset = offset - TailBackOffset;
+									if (BackOffset - 1 > GetHeadIndex())
+										return InvalidIndex();
+									else
+										index = BackOffset - 1;
+								}
+								else
+									index += offset;
+							}
+							else
+							{
+								if (offset > GetHeadIndex())
+									return InvalidIndex();
+
+								index += offset;
+							}
+						};
+					}
+					else
+					{
+						if (GetTailIndex() + offset > GetHeadIndex())
+							return InvalidIndex();
+
+						index += offset;
+					}
+
+					if (!IsIndexValid(index))
+						return InvalidIndex();
+
+					return index;
+				};
+
+				inline size_t GetPreviousIndexIter(size_t index) const
+				{
+					if (index == InvalidIndex())
+					{
+						return InvalidIndex();
+					}
+
+					if (GetTailIndex() > GetHeadIndex())
+					{
+						if (index == 0)
+							index = GetCapacity() - 1;
+						else
+							index--;
+					}
+					else
+						index--;
+
+					if (!IsIndexValid(index))
+						return InvalidIndex();
+
+					return index;
+				};
+
+				inline size_t GetPreviousIndexIter(size_t index, size_t offset) const
+				{
+					if (!offset)
+						return index;
+
+					if (index == InvalidIndex())
+					{
+						return InvalidIndex();
+					}
+
+					if (GetTailIndex() > GetHeadIndex())
+					{
+						if (index >= 0 && index <= GetHeadIndex())
+						{
+							size_t HeadBackOffset = index;
+							if (offset == HeadBackOffset + 1)
+								index = 0;
+							else
+							{
+								if (offset > HeadBackOffset + 1)
+								{
+									if (GetCapacity() - 1 - GetTailIndex() < offset - HeadBackOffset + 1)
+										return InvalidIndex();
+									else
+										index = GetCapacity() - (offset - HeadBackOffset + 1);
+								}
+								else
+								{
+									index -= offset;
+								}
+							}
+						}
+						else
+						{
+							if (offset > index - GetTailIndex())
+								return InvalidIndex();
+							else
+							{
+								index = index - offset;
+							}
+						}
+					}
+					else
+					{
+						if (index < offset - 1)
+							return InvalidIndex();
+						index -= offset;
+					}
+
+					if (!IsIndexValid(index))
+						return InvalidIndex();
+
+					return index;
+				};
+
+
+			private:
+
 				ValueT* PointToValueAtIndex(size_t index);
+				const ValueT* PointToValueAtIndex(size_t index) const;
+				ValueT* PointToValueAtRingIndex(size_t index);
+				const ValueT* PointToValueAtRingIndex(size_t index) const;
 				inline ValueT** GetData() { return MemoryBlock; }
+				inline const ValueT** GetData() const { return (const ValueT**)MemoryBlock; }
 				inline size_t GetNextHeadIndex() const;
 				inline size_t GetNextTailIndex() const;
 				AllocatorT m_InternalAllocator = AllocatorT{};
@@ -191,9 +774,10 @@ namespace spnet {
 				Resize(Other.capacity);
 				if (Other.elementsInside > 0)
 				{
-					detail::CopyMemory(Other.MemoryBlock, MemoryBlock, capacity);
-					head = Other.head;
-					elementsInside = Other.elementsInside;
+					for (auto& element : const_cast<RingBuffer&>(Other))
+					{
+						PushFront(element);
+					}
 				};
 			}
 
@@ -205,47 +789,27 @@ namespace spnet {
 				elementsInside = Other.elementsInside;
 				capacity = Other.capacity;
 				m_InternalAllocator = Other.m_InternalAllocator;
+
+				Other.MemoryBlock = nullptr;
+				Other.head = InvalidIndex();
+				Other.elementsInside = 0;
+				Other.capacity = 0;
+				Other.m_InternalAllocator = {};
 			}
 
 			template<typename ValueT, typename AllocatorT>
-			inline RingBuffer<ValueT, AllocatorT>& RingBuffer<ValueT, AllocatorT>::operator=(RingBuffer<ValueT, AllocatorT>& Other)
+			inline RingBuffer<ValueT, AllocatorT>& RingBuffer<ValueT, AllocatorT>::operator=(RingBuffer& Other)
 			{
-				if (size())
-					Clear();
-
-				if (MemoryBlock)
-				{
-					m_InternalAllocator.Deallocate(MemoryBlock);
-				}
-
 				Resize(Other.capacity);
 				if (Other.elementsInside > 0)
 				{
-					detail::CopyMemory(Other.MemoryBlock, MemoryBlock, capacity);
-					head = Other.head;
-					elementsInside = Other.elementsInside;
+					for (auto& element : const_cast<RingBuffer&>(Other))
+					{
+						PushFront(element);
+					}
 				};
 				return *this;
-			}
-			template<typename ValueT, typename AllocatorT>
-			inline RingBuffer<ValueT, AllocatorT>& RingBuffer<ValueT, AllocatorT>::operator=(RingBuffer<ValueT, AllocatorT>&& Other)
-			{
-				if (size())
-					Clear();
-
-				if (MemoryBlock)
-				{
-					m_InternalAllocator.Deallocate(MemoryBlock);
-				}
-
-				MemoryBlock = Other.MemoryBlock;
-				head = Other.head;
-				elementsInside = Other.elementsInside;
-				capacity = Other.capacity;
-				m_InternalAllocator = Other.m_InternalAllocator;
-				return *this;
-			}
-			;
+			};
 
 			template<typename ValueT, typename AllocatorT>
 			RingBuffer<ValueT, AllocatorT>::RingBuffer(size_t capacity)
@@ -265,6 +829,10 @@ namespace spnet {
 			{
 				if (MemoryBlock)
 				{
+					for (auto& element : *this)
+					{
+						element.~ValueT();
+					}
 					m_InternalAllocator.Deallocate(MemoryBlock);
 				}
 			};
@@ -359,66 +927,42 @@ namespace spnet {
 			};
 
 			template<typename ValueT, typename AllocatorT>
-			ValueT* RingBuffer<ValueT, AllocatorT>::PeekFront()
+			typename RingBuffer<ValueT, AllocatorT>::IndexedIterator RingBuffer<ValueT, AllocatorT>::PeekFront()
 			{
-				ValueT* result = nullptr;
+				IndexedIterator result = end();
 
 				if (head != InvalidIndex())
-					result = PointToValueAtIndex(head);
+					result = IndexedIterator{ *this, head , Iterators::EIndexedAccessIteratorPosition::InRange };
 				return result;
 			};
 
 			template<typename ValueT, typename AllocatorT>
-			ValueT* RingBuffer<ValueT, AllocatorT>::PeekBack()
+			typename RingBuffer<ValueT, AllocatorT>::IndexedIterator RingBuffer<ValueT, AllocatorT>::PeekBack()
 			{
-				ValueT* result = nullptr;
+				IndexedIterator result = end();
 
 				if (GetTailIndex() != InvalidIndex())
-					result = PointToValueAtIndex(GetTailIndex());
+					result = IndexedIterator{ *this, GetTailIndex() , Iterators::EIndexedAccessIteratorPosition::InRange };
 				return result;
 			};
 
 			template<typename ValueT, typename AllocatorT>
-			ValueT& RingBuffer<ValueT, AllocatorT>::Front()
+			typename RingBuffer<ValueT, AllocatorT>::ConstIndexedIterator RingBuffer<ValueT, AllocatorT>::PeekFront() const
 			{
-				return *PeekBack();
-			};
-
-			template<typename ValueT, typename AllocatorT>
-			ValueT& RingBuffer<ValueT, AllocatorT>::Back()
-			{
-				return *PeekFront();
-			};
-
-			template<typename ValueT, typename AllocatorT>
-			const ValueT& RingBuffer<ValueT, AllocatorT>::Front() const
-			{
-				return *PeekBack();
-			};
-
-			template<typename ValueT, typename AllocatorT>
-			const ValueT& RingBuffer<ValueT, AllocatorT>::Back() const
-			{
-				return *PeekFront();
-			};
-
-			template<typename ValueT, typename AllocatorT>
-			const ValueT* RingBuffer<ValueT, AllocatorT>::PeekFront() const
-			{
-				ValueT* result = nullptr;
+				ConstIndexedIterator result = end();
 
 				if (head != InvalidIndex())
-					result = PointToValueAtIndex(head);
+					result = ConstIndexedIterator{ *this, head , Iterators::EIndexedAccessIteratorPosition::InRange };
 				return result;
 			};
 
 			template<typename ValueT, typename AllocatorT>
-			const ValueT* RingBuffer<ValueT, AllocatorT>::PeekBack() const
+			typename RingBuffer<ValueT, AllocatorT>::ConstIndexedIterator RingBuffer<ValueT, AllocatorT>::PeekBack() const
 			{
-				ValueT* result = nullptr;
+				ConstIndexedIterator result = end();
 
 				if (GetTailIndex() != InvalidIndex())
-					result = PointToValueAtIndex(GetTailIndex());
+					result = ConstIndexedIterator{ *this, GetTailIndex() , Iterators::EIndexedAccessIteratorPosition::InRange };
 				return result;
 			};
 
@@ -584,6 +1128,15 @@ namespace spnet {
 			}
 
 			template<typename ValueT, typename AllocatorT>
+			inline const ValueT* RingBuffer<ValueT, AllocatorT>::PointToValueAtIndex(size_t index) const
+			{
+				if (index >= capacity)
+					return nullptr;
+
+				return (ValueT*)GetData() + index;
+			}
+
+			template<typename ValueT, typename AllocatorT>
 			inline size_t RingBuffer<ValueT, AllocatorT>::GetNextHeadIndex() const
 			{
 				if (capacity == 0 || capacity == elementsInside)
@@ -605,7 +1158,26 @@ namespace spnet {
 				return NextIndex;
 			};
 
+			template<typename ValueT, typename AllocatorT>
+			inline ValueT* RingBuffer<ValueT, AllocatorT>::PointToValueAtRingIndex(size_t index)
+			{
+				if (index >= capacity)
+					return nullptr;
+
+				return LookAtIndex((GetTailIndex() + index) % capacity);
+			}
+
+			template<typename ValueT, typename AllocatorT>
+			inline const ValueT* RingBuffer<ValueT, AllocatorT>::PointToValueAtRingIndex(size_t index) const
+			{
+				if (index >= capacity)
+					return nullptr;
+
+				return LookAtIndex((GetTailIndex() + index) % capacity);
+			}
+
 		};
+
 		template <typename T>
 		using DynamicArray = RingBufferImplementation::RingBuffer<T>;
 	};
